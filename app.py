@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify, send_from_directory
 import os
 from werkzeug.utils import secure_filename
 from models.Grafo import Grafo
+from threading import Thread
 
 app = Flask(__name__, static_folder='static')
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -12,6 +13,14 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # Grafo global que se utilizará en la aplicación
 grafo = None
+
+# Variable global para almacenar el estado del cálculo de métricas
+metricas_estado = {
+    'en_progreso': False,
+    'progreso': 0,
+    'metricas_calculadas': set(),
+    'error': None
+}
 
 def allowed_file(filename):
     """Verifica que el archivo tenga una extensión permitida"""
@@ -143,30 +152,74 @@ def info_nodo(id_nodo):
 
 @app.route('/calcular-metricas', methods=['POST'])
 def calcular_metricas():
-    """Calcula todas las métricas disponibles para el grafo"""
-    global grafo
+    """Inicia el cálculo de métricas de manera asíncrona"""
+    global grafo, metricas_estado
+    
     if grafo is None:
         return jsonify({'error': 'No hay grafo cargado. Por favor, cargue un grafo primero.'}), 400
     
+    if metricas_estado['en_progreso']:
+        return jsonify({'error': 'Ya hay un cálculo de métricas en progreso.'}), 400
+    
+    # Reiniciar estado
+    metricas_estado['en_progreso'] = True
+    metricas_estado['progreso'] = 0
+    metricas_estado['metricas_calculadas'] = set()
+    metricas_estado['error'] = None
+    
+    # Iniciar el cálculo en un hilo separado
+    thread = Thread(target=calcular_metricas_async)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        'mensaje': 'Cálculo de métricas iniciado',
+        'estado': 'iniciado'
+    })
+
+@app.route('/estado-metricas', methods=['GET'])
+def obtener_estado_metricas():
+    """Obtiene el estado actual del cálculo de métricas"""
+    global metricas_estado
+    
+    return jsonify({
+        'en_progreso': metricas_estado['en_progreso'],
+        'progreso': metricas_estado['progreso'],
+        'metricas_calculadas': list(metricas_estado['metricas_calculadas']),
+        'error': metricas_estado['error']
+    })
+
+def calcular_metricas_async():
+    """Función que realiza el cálculo de métricas de manera asíncrona"""
+    global grafo, metricas_estado
+    
     try:
-        grafo.calcular_centralidad()
-        grafo.calcular_cercania()
-        grafo.calcular_intermediacion()
-        grafo.calcular_pagerank()
-        grafo.calcular_hits()
+        # Lista de métricas a calcular
+        metricas = [
+            ('Centralidad', grafo.calcular_centralidad),
+            ('Cercanía', grafo.calcular_cercania),
+            ('Intermediación', grafo.calcular_intermediacion),
+            ('PageRank', grafo.calcular_pagerank),
+            ('HITS', grafo.calcular_hits)
+        ]
         
-        return jsonify({
-            'mensaje': '¡Métricas calculadas exitosamente! Ahora puede visualizar el grafo para ver los resultados o consultar nodos individuales para ver sus valores.',
-            'metricas_calculadas': [
-                'Centralidad', 
-                'Cercanía', 
-                'Intermediación', 
-                'PageRank', 
-                'HITS (Authority/Hub)'
-            ]
-        }), 200
+        total_metricas = len(metricas)
+        
+        for i, (nombre, funcion) in enumerate(metricas):
+            try:
+                funcion()
+                metricas_estado['metricas_calculadas'].add(nombre)
+            except Exception as e:
+                print(f"Error al calcular {nombre}: {str(e)}")
+            
+            # Actualizar progreso
+            metricas_estado['progreso'] = ((i + 1) / total_metricas) * 100
+    
     except Exception as e:
-        return jsonify({'error': f'Error al calcular métricas: {str(e)}'}), 500
+        metricas_estado['error'] = str(e)
+    
+    finally:
+        metricas_estado['en_progreso'] = False
 
 @app.route('/aristas', methods=['GET'])
 def listar_aristas():

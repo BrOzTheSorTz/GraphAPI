@@ -384,6 +384,493 @@ function calcularDistancia() {
     });
 }
 
+// Variable para controlar el intervalo de consulta del estado
+let metricsStatusInterval = null;
+
+// Calcular métricas
+function calcularMetricas() {
+    console.log("script.js: calcularMetricas() called.");
+    
+    // Crear y mostrar el modal de progreso
+    const progressModal = document.createElement('div');
+    progressModal.className = 'progress-modal';
+    progressModal.innerHTML = `
+        <div class="progress-content">
+            <h4>Calculando Métricas</h4>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" 
+                     style="width: 0%" 
+                     aria-valuenow="0" 
+                     aria-valuemin="0" 
+                     aria-valuemax="100">0%</div>
+            </div>
+            <div class="metrics-status mt-3">
+                <p class="text-muted mb-2">Métricas calculadas:</p>
+                <ul class="metrics-list">
+                </ul>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(progressModal);
+    
+    // Iniciar el cálculo
+    fetch('/calcular-metricas', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+            progressModal.remove();
+            return;
+        }
+        
+        // Iniciar la consulta del estado
+        metricsStatusInterval = setInterval(() => {
+            fetch('/estado-metricas')
+                .then(response => response.json())
+                .then(status => {
+                    // Actualizar barra de progreso
+                    const progressBar = progressModal.querySelector('.progress-bar');
+                    progressBar.style.width = `${status.progreso}%`;
+                    progressBar.setAttribute('aria-valuenow', status.progreso);
+                    progressBar.textContent = `${Math.round(status.progreso)}%`;
+                    
+                    // Actualizar lista de métricas calculadas
+                    const metricsList = progressModal.querySelector('.metrics-list');
+                    metricsList.innerHTML = status.metricas_calculadas
+                        .map(metrica => `<li><i class="bi bi-check-circle-fill text-success"></i> ${metrica}</li>`)
+                        .join('');
+                    
+                    // Si hay error, mostrar y detener
+                    if (status.error) {
+                        clearInterval(metricsStatusInterval);
+                        mostrarError(`Error al calcular métricas: ${status.error}`);
+                        progressModal.remove();
+                    }
+                    
+                    // Si el cálculo ha terminado
+                    if (!status.en_progreso) {
+                        clearInterval(metricsStatusInterval);
+                        setTimeout(() => {
+                            progressModal.remove();
+                            mostrarNotificacion('¡Métricas calculadas exitosamente!', 'success');
+                            if (window.resultsManager) {
+                                window.resultsManager.showMetricsNotification(status.metricas_calculadas);
+                                window.resultsManager.showModal();
+                            }
+                        }, 1000);
+                    }
+                })
+                .catch(error => {
+                    clearInterval(metricsStatusInterval);
+                    mostrarError(error.message);
+                    progressModal.remove();
+                });
+        }, 500); // Consultar cada 500ms
+    })
+    .catch(error => {
+        mostrarError(error.message);
+        progressModal.remove();
+    });
+}
+
+// Visualizar grafo
+function visualizarGrafo() {
+    console.log("script.js: visualizarGrafo() called.");
+    fetch('/grafo-visualizacion')
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+        } else {
+            document.getElementById('grafo-container').classList.remove('d-none');
+            renderGrafo(data);
+        }
+    })
+    .catch(error => mostrarError(error.message));
+}
+
+// Renderizar el grafo con D3.js
+function renderGrafo(data) {
+    console.log("script.js: renderGrafo() called.");
+    
+    // Limpiar el SVG
+    d3.select("#grafo-svg").selectAll("*").remove();
+    
+    const svg = d3.select("#grafo-svg"),
+          width = svg.node().getBoundingClientRect().width,
+          height = svg.node().getBoundingClientRect().height;
+    
+    // Crear grupo principal para aplicar zoom
+    const g = svg.append("g");
+    
+    // Configurar el zoom con límites más amplios y zoom inicial basado en el número de nodos
+    const numNodos = data.nodes.length;
+    const zoomInicial = Math.max(0.1, Math.min(1, 1000 / numNodos));
+    
+    const zoom = d3.zoom()
+        .scaleExtent([0.05, 20]) // Permitir más zoom out y zoom in
+        .on("zoom", (event) => {
+            g.attr("transform", event.transform);
+            // Ajustar la visibilidad de las etiquetas según el nivel de zoom
+            const scale = event.transform.k;
+            g.selectAll(".node text")
+                .style("display", scale > 0.5 ? "block" : "none")
+                .style("font-size", `${Math.min(14, 10/scale)}px`);
+            // Ajustar el grosor de las líneas según el zoom
+            g.selectAll(".link")
+                .style("stroke-width", `${1/scale}px`);
+            g.selectAll(".node circle")
+                .attr("r", d => Math.max(2, Math.min(8, d.value/scale)));
+        });
+    
+    // Aplicar zoom al SVG con zoom inicial
+    svg.call(zoom)
+       .call(zoom.transform, d3.zoomIdentity
+            .translate(width/2, height/2)
+            .scale(zoomInicial)
+            .translate(-width/2, -height/2));
+    
+    // Resetear zoom con animación suave
+    window.resetZoom = function() {
+        svg.transition()
+           .duration(750)
+           .call(zoom.transform, d3.zoomIdentity
+                .translate(width/2, height/2)
+                .scale(zoomInicial)
+                .translate(-width/2, -height/2));
+    };
+    
+    // Optimizar fuerzas para grafos grandes
+    const distanciaEnlaces = Math.min(100, 1000 / Math.sqrt(numNodos));
+    const fuerzaCarga = -30 * Math.log10(numNodos);
+    
+    // Crear la simulación de fuerzas optimizada
+    const simulation = d3.forceSimulation(data.nodes)
+        .force("link", d3.forceLink(data.links)
+            .id(d => d.id)
+            .distance(distanciaEnlaces))
+        .force("charge", d3.forceManyBody()
+            .strength(fuerzaCarga)
+            .theta(0.9)  // Optimización del algoritmo Barnes-Hut
+            .distanceMax(2000)) // Limitar la distancia máxima de repulsión
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("collision", d3.forceCollide().radius(5))
+        .alphaDecay(0.01) // Hacer la simulación más suave
+        .velocityDecay(0.3); // Reducir la velocidad de movimiento
+    
+    // Crear las líneas (enlaces) con opacidad reducida
+    const link = g.append("g")
+        .attr("class", "links")
+        .selectAll("line")
+        .data(data.links)
+        .enter().append("line")
+        .attr("class", "link")
+        .style("stroke-opacity", 0.3); // Reducir opacidad para menos ruido visual
+    
+    // Crear los nodos
+    const node = g.append("g")
+        .attr("class", "nodes")
+        .selectAll("g")
+        .data(data.nodes)
+        .enter().append("g")
+        .attr("class", "node")
+        .attr("id", d => `node-${d.id.replace(/[^a-zA-Z0-9]/g, "_")}`)
+        .on("click", function(event, d) {
+            event.stopPropagation();
+            mostrarInfoNodo(d, event, this);
+        })
+        .call(d3.drag()
+            .on("start", dragstarted)
+            .on("drag", dragged)
+            .on("end", dragended));
+    
+    // Añadir círculos a los nodos con tamaño optimizado
+    node.append("circle")
+        .attr("r", d => Math.max(2, Math.min(8, d.value)))
+        .attr("fill", d => getRandomColor(d.id))
+        .style("stroke-width", "1px");
+    
+    // Añadir etiquetas a los nodos con visibilidad condicional
+    node.append("text")
+        .attr("dy", -8)
+        .text(d => d.label || d.id)
+        .attr("text-anchor", "middle")
+        .style("display", "none") // Inicialmente ocultas
+        .style("font-size", "10px")
+        .style("paint-order", "stroke")
+        .style("stroke-width", "2px")
+        .style("stroke", "white");
+    
+    // Optimizar la función tick para mejor rendimiento
+    simulation.on("tick", () => {
+        // Limitar el área de movimiento para evitar que los nodos se alejen demasiado
+        const padding = 50;
+        data.nodes.forEach(d => {
+            d.x = Math.max(padding, Math.min(width - padding, d.x));
+            d.y = Math.max(padding, Math.min(height - padding, d.y));
+        });
+        
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+        
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
+    });
+    
+    // Funciones para el arrastre optimizadas
+    function dragstarted(event, d) {
+        if (!event.active) simulation.alphaTarget(0.1).restart();
+        d.fx = d.x;
+        d.fy = d.y;
+    }
+    
+    function dragged(event, d) {
+        d.fx = event.x;
+        d.fy = event.y;
+    }
+    
+    function dragended(event, d) {
+        if (!event.active) simulation.alphaTarget(0);
+        d.fx = null;
+        d.fy = null;
+    }
+    
+    // Añadir leyenda con información del grafo
+    const leyenda = svg.append("g")
+        .attr("class", "leyenda")
+        .attr("transform", `translate(10, ${height - 60})`);
+    
+    leyenda.append("rect")
+        .attr("width", 180)
+        .attr("height", 50)
+        .attr("fill", "white")
+        .attr("opacity", 0.8)
+        .attr("rx", 5);
+    
+    leyenda.append("text")
+        .attr("x", 10)
+        .attr("y", 20)
+        .text(`Nodos: ${data.nodes.length}`)
+        .style("font-size", "12px");
+    
+    leyenda.append("text")
+        .attr("x", 10)
+        .attr("y", 40)
+        .text(`Enlaces: ${data.links.length}`)
+        .style("font-size", "12px");
+    
+    // Generar colores aleatorios pero consistentes para cada nodo
+    function getRandomColor(id) {
+        // Asegurarse de que id sea una cadena
+        id = String(id || '');
+        // Verificar si id está vacío
+        if (!id) {
+            return 'hsl(0, 70%, 60%)'; // Color rojo por defecto
+        }
+        // Genera un color basado en el id para que el mismo nodo siempre tenga el mismo color
+        const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+        const hue = hash % 360;
+        return `hsl(${hue}, 70%, 60%)`;
+    }
+    
+    // Función para mostrar información del nodo
+    function mostrarInfoNodo(nodo, event, nodeElement) {
+        event.preventDefault();
+        const nodeInfo = document.getElementById('node-info');
+        
+        // Log para depuración
+        console.log('Mostrando info de nodo:', nodo);
+        
+        // Verificar que el nodo tiene un ID válido
+        if (!nodo || !nodo.id) {
+            console.error('Error: Nodo sin ID válido', nodo);
+            nodeInfo.innerHTML = `<p class="error-text">Error: El nodo no tiene un ID válido</p>`;
+            nodeInfo.style.left = `${event.clientX}px`;
+            nodeInfo.style.top = `${event.clientY}px`;
+            nodeInfo.style.display = 'block';
+            return;
+        }
+        
+        // Mostrar información de carga
+        nodeInfo.innerHTML = `<p>Cargando información del nodo ${nodo.id}...</p>`;
+        nodeInfo.style.left = `${event.clientX}px`;
+        nodeInfo.style.top = `${event.clientY}px`;
+        nodeInfo.style.display = 'block';
+        
+        const url = `/nodo/${encodeURIComponent(nodo.id)}`;
+        console.log('Solicitando datos de:', url);
+        
+        // Obtener información detallada del nodo
+        fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    if (response.status === 404) {
+                        throw new Error(`No se encontró el nodo con ID ${nodo.id}`);
+                    } else {
+                        throw new Error(`Error del servidor: ${response.status}`);
+                    }
+                }
+                
+                // Verificar que la respuesta es JSON antes de parsearla
+                const contentType = response.headers.get('content-type');
+                if (contentType && contentType.includes('application/json')) {
+                    return response.json();
+                } else {
+                    // Si no es JSON, leer como texto y mostrar error
+                    return response.text().then(text => {
+                        console.error('Respuesta no es JSON:', text);
+                        throw new Error('La respuesta del servidor no es JSON válido');
+                    });
+                }
+            })
+            .then(data => {
+                // Verificar si hay error
+                if (data.error) {
+                    nodeInfo.innerHTML = `<p class="error-text">Error: ${data.error}</p>`;
+                } else {
+                    // Crear contenido HTML
+                    let html = `
+                        <h6>Nodo: ${data.nombre}</h6>
+                        <p><strong>ID:</strong> ${data.id}</p>
+                        <p><strong>Adyacentes:</strong> ${data.num_adyacentes}</p>
+                    `;
+                    
+                    // Función auxiliar para formatear valores numéricos
+                    const formatNumber = (value) => {
+                        return (value !== null && value !== undefined) ? parseFloat(value).toFixed(3) : '0.000';
+                    };
+                    
+                    // Añadir métricas si están disponibles
+                    if (data.centralidad !== undefined) {
+                        html += `<p><strong>Centralidad:</strong> ${formatNumber(data.centralidad)}</p>`;
+                    }
+                    if (data.cercania !== undefined) {
+                        html += `<p><strong>Cercanía:</strong> ${formatNumber(data.cercania)}</p>`;
+                    }
+                    if (data.intermediacion !== undefined) {
+                        html += `<p><strong>Intermediación:</strong> ${formatNumber(data.intermediacion)}</p>`;
+                    }
+                    if (data.pagerank !== undefined) {
+                        html += `<p><strong>PageRank:</strong> ${formatNumber(data.pagerank)}</p>`;
+                    }
+                    // Añadir métricas de HITS
+                    if (data.authority !== undefined) {
+                        html += `<p><strong>Authority:</strong> ${formatNumber(data.authority)}</p>`;
+                    }
+                    if (data.hub !== undefined) {
+                        html += `<p><strong>Hub:</strong> ${formatNumber(data.hub)}</p>`;
+                    }
+                    
+                    nodeInfo.innerHTML = html;
+                }
+            })
+            .catch(error => {
+                console.error("Error al obtener información del nodo:", error);
+                nodeInfo.innerHTML = `<p class="error-text">❌ Error: ${error.message}</p>`;
+            });
+    }
+    
+    // Cerrar la información del nodo al hacer clic en otra parte
+    // Necesita que 'svg' sea accesible globalmente o pasado como argumento si está fuera del alcance
+    // Como está definido dentro de renderGrafo, se buscará la forma de adjuntar el listener correctamente.
+    // Una opción es adjuntarlo al final de renderGrafo
+    const svgElement = document.getElementById('grafo-svg');
+    if (svgElement) {
+        svgElement.addEventListener('click', () => {
+            document.getElementById('node-info').style.display = 'none';
+        });
+    } else {
+        console.error("Elemento SVG no encontrado para adjuntar listener de click.");
+    }
+}
+
+// --- Final structure reminder ---
+// Global functions (API calls, UI updates like modal/toast) are defined first.
+// Then, the DOMContentLoaded listener attaches event handlers to elements. 
+
+// --- API Call Functions (remain globally accessible for onclick) ---
+
+// Información del grafo
+function infoGrafo() {
+    console.log("script.js: infoGrafo() called.");
+    fetch('/info-grafo')
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+        } else {
+            mostrarResultados(data);
+        }
+    })
+    .catch(error => mostrarError(error.message));
+}
+
+// Listar nodos
+function listarNodos() {
+    console.log("script.js: listarNodos() called.");
+    fetch('/nodos')
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+        } else {
+            mostrarResultados(data);
+        }
+    })
+    .catch(error => mostrarError(error.message));
+}
+
+// Listar aristas
+function listarAristas() {
+    console.log("script.js: listarAristas() called.");
+    
+    // Primero obtener la lista de nodos para tener sus nombres
+    fetch('/nodos')
+    .then(response => response.json())
+    .then(nodesData => {
+        if (nodesData.error) {
+            mostrarError(nodesData.error);
+            return;
+        }
+
+        // Crear un mapa de IDs a nombres
+        const nodeMap = {};
+        nodesData.nodos.forEach(node => {
+            nodeMap[node.id] = node.nombre;
+        });
+
+        // Ahora obtener las aristas
+        return fetch('/aristas')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                mostrarError(data.error);
+                return;
+            }
+
+            // Transformar los datos de aristas al formato esperado, usando los nombres
+            const edgesFormatted = data.aristas.map(edge => ({
+                nodo_origen: nodeMap[edge.source] || edge.source,
+                nodos_destino: [nodeMap[edge.target] || edge.target]
+            }));
+
+            // Mostrar los resultados usando el ResultsManager
+            if (window.resultsManager) {
+                window.resultsManager.showEdgesList(edgesFormatted);
+            }
+        });
+    })
+    .catch(error => {
+        console.error("Error al listar aristas:", error);
+        mostrarError(error.message);
+    });
+}
+
 // --- Event Listeners (Execute after DOM is loaded) ---
 document.addEventListener('DOMContentLoaded', function() {
     console.log("DOM fully loaded and parsed.");
@@ -560,7 +1047,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-
 // --- API Call Functions (remain globally accessible for onclick) ---
 
 // Información del grafo
@@ -642,8 +1128,31 @@ function listarAristas() {
 // Calcular métricas
 function calcularMetricas() {
     console.log("script.js: calcularMetricas() called.");
-    mostrarNotificacion('Calculando métricas, por favor espere...', 'info');
     
+    // Crear y mostrar el modal de progreso
+    const progressModal = document.createElement('div');
+    progressModal.className = 'progress-modal';
+    progressModal.innerHTML = `
+        <div class="progress-content">
+            <h4>Calculando Métricas</h4>
+            <div class="progress">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                     role="progressbar" 
+                     style="width: 0%" 
+                     aria-valuenow="0" 
+                     aria-valuemin="0" 
+                     aria-valuemax="100">0%</div>
+            </div>
+            <div class="metrics-status mt-3">
+                <p class="text-muted mb-2">Métricas calculadas:</p>
+                <ul class="metrics-list">
+                </ul>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(progressModal);
+    
+    // Iniciar el cálculo
     fetch('/calcular-metricas', {
         method: 'POST'
     })
@@ -651,16 +1160,58 @@ function calcularMetricas() {
     .then(data => {
         if (data.error) {
             mostrarError(data.error);
-        } else {
-            // Mostrar la notificación con las métricas calculadas
-            if (window.resultsManager) {
-                window.resultsManager.showMetricsNotification(data.metricas_calculadas);
-                window.resultsManager.showModal();
-            }
-            mostrarMensaje(data.mensaje);
+            progressModal.remove();
+            return;
         }
+        
+        // Iniciar la consulta del estado
+        metricsStatusInterval = setInterval(() => {
+            fetch('/estado-metricas')
+                .then(response => response.json())
+                .then(status => {
+                    // Actualizar barra de progreso
+                    const progressBar = progressModal.querySelector('.progress-bar');
+                    progressBar.style.width = `${status.progreso}%`;
+                    progressBar.setAttribute('aria-valuenow', status.progreso);
+                    progressBar.textContent = `${Math.round(status.progreso)}%`;
+                    
+                    // Actualizar lista de métricas calculadas
+                    const metricsList = progressModal.querySelector('.metrics-list');
+                    metricsList.innerHTML = status.metricas_calculadas
+                        .map(metrica => `<li><i class="bi bi-check-circle-fill text-success"></i> ${metrica}</li>`)
+                        .join('');
+                    
+                    // Si hay error, mostrar y detener
+                    if (status.error) {
+                        clearInterval(metricsStatusInterval);
+                        mostrarError(`Error al calcular métricas: ${status.error}`);
+                        progressModal.remove();
+                    }
+                    
+                    // Si el cálculo ha terminado
+                    if (!status.en_progreso) {
+                        clearInterval(metricsStatusInterval);
+                        setTimeout(() => {
+                            progressModal.remove();
+                            mostrarNotificacion('¡Métricas calculadas exitosamente!', 'success');
+                            if (window.resultsManager) {
+                                window.resultsManager.showMetricsNotification(status.metricas_calculadas);
+                                window.resultsManager.showModal();
+                            }
+                        }, 1000);
+                    }
+                })
+                .catch(error => {
+                    clearInterval(metricsStatusInterval);
+                    mostrarError(error.message);
+                    progressModal.remove();
+                });
+        }, 500); // Consultar cada 500ms
     })
-    .catch(error => mostrarError(error.message));
+    .catch(error => {
+        mostrarError(error.message);
+        progressModal.remove();
+    });
 }
 
 // Visualizar grafo
@@ -682,8 +1233,6 @@ function visualizarGrafo() {
 // Renderizar el grafo con D3.js
 function renderGrafo(data) {
     console.log("script.js: renderGrafo() called.");
-    // Mostrar el contenedor
-    document.getElementById('grafo-container').classList.remove('d-none');
     
     // Limpiar el SVG
     d3.select("#grafo-svg").selectAll("*").remove();
@@ -695,38 +1244,69 @@ function renderGrafo(data) {
     // Crear grupo principal para aplicar zoom
     const g = svg.append("g");
     
-    // Configurar el zoom
+    // Configurar el zoom con límites más amplios y zoom inicial basado en el número de nodos
+    const numNodos = data.nodes.length;
+    const zoomInicial = Math.max(0.1, Math.min(1, 1000 / numNodos));
+    
     const zoom = d3.zoom()
-        .scaleExtent([0.1, 10])
+        .scaleExtent([0.05, 20]) // Permitir más zoom out y zoom in
         .on("zoom", (event) => {
             g.attr("transform", event.transform);
+            // Ajustar la visibilidad de las etiquetas según el nivel de zoom
+            const scale = event.transform.k;
+            g.selectAll(".node text")
+                .style("display", scale > 0.5 ? "block" : "none")
+                .style("font-size", `${Math.min(14, 10/scale)}px`);
+            // Ajustar el grosor de las líneas según el zoom
+            g.selectAll(".link")
+                .style("stroke-width", `${1/scale}px`);
+            g.selectAll(".node circle")
+                .attr("r", d => Math.max(2, Math.min(8, d.value/scale)));
         });
     
-    // Aplicar zoom al SVG
-    svg.call(zoom);
+    // Aplicar zoom al SVG con zoom inicial
+    svg.call(zoom)
+       .call(zoom.transform, d3.zoomIdentity
+            .translate(width/2, height/2)
+            .scale(zoomInicial)
+            .translate(-width/2, -height/2));
     
-    // Resetear zoom
+    // Resetear zoom con animación suave
     window.resetZoom = function() {
-        svg.transition().duration(750).call(
-            zoom.transform,
-            d3.zoomIdentity
-        );
+        svg.transition()
+           .duration(750)
+           .call(zoom.transform, d3.zoomIdentity
+                .translate(width/2, height/2)
+                .scale(zoomInicial)
+                .translate(-width/2, -height/2));
     };
     
-    // Crear la simulación de fuerzas
-    const simulation = d3.forceSimulation(data.nodes)
-        .force("link", d3.forceLink(data.links).id(d => d.id).distance(100))
-        .force("charge", d3.forceManyBody().strength(-300))
-        .force("center", d3.forceCenter(width / 2, height / 2))
-        .force("collision", d3.forceCollide().radius(30));
+    // Optimizar fuerzas para grafos grandes
+    const distanciaEnlaces = Math.min(100, 1000 / Math.sqrt(numNodos));
+    const fuerzaCarga = -30 * Math.log10(numNodos);
     
-    // Crear las líneas (enlaces)
+    // Crear la simulación de fuerzas optimizada
+    const simulation = d3.forceSimulation(data.nodes)
+        .force("link", d3.forceLink(data.links)
+            .id(d => d.id)
+            .distance(distanciaEnlaces))
+        .force("charge", d3.forceManyBody()
+            .strength(fuerzaCarga)
+            .theta(0.9)  // Optimización del algoritmo Barnes-Hut
+            .distanceMax(2000)) // Limitar la distancia máxima de repulsión
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("collision", d3.forceCollide().radius(5))
+        .alphaDecay(0.01) // Hacer la simulación más suave
+        .velocityDecay(0.3); // Reducir la velocidad de movimiento
+    
+    // Crear las líneas (enlaces) con opacidad reducida
     const link = g.append("g")
         .attr("class", "links")
         .selectAll("line")
         .data(data.links)
         .enter().append("line")
-        .attr("class", "link");
+        .attr("class", "link")
+        .style("stroke-opacity", 0.3); // Reducir opacidad para menos ruido visual
     
     // Crear los nodos
     const node = g.append("g")
@@ -745,35 +1325,44 @@ function renderGrafo(data) {
             .on("drag", dragged)
             .on("end", dragended));
     
-    // Añadir círculos a los nodos
+    // Añadir círculos a los nodos con tamaño optimizado
     node.append("circle")
-        .attr("r", d => Math.max(5, Math.min(15, d.value)))
-        .attr("fill", d => getRandomColor(d.id));
+        .attr("r", d => Math.max(2, Math.min(8, d.value)))
+        .attr("fill", d => getRandomColor(d.id))
+        .style("stroke-width", "1px");
     
-    // Añadir etiquetas a los nodos
+    // Añadir etiquetas a los nodos con visibilidad condicional
     node.append("text")
-        .attr("dy", -10)
+        .attr("dy", -8)
         .text(d => d.label || d.id)
-        .attr("text-anchor", "middle");
+        .attr("text-anchor", "middle")
+        .style("display", "none") // Inicialmente ocultas
+        .style("font-size", "10px")
+        .style("paint-order", "stroke")
+        .style("stroke-width", "2px")
+        .style("stroke", "white");
     
-    // Añadir título al pasar el ratón
-    node.append("title")
-        .text(d => d.label || d.id);
-    
-    // Actualización en cada tick de la simulación
+    // Optimizar la función tick para mejor rendimiento
     simulation.on("tick", () => {
-        link
-            .attr("x1", d => Math.max(10, Math.min(width - 10, d.source.x)))
-            .attr("y1", d => Math.max(10, Math.min(height - 10, d.source.y)))
-            .attr("x2", d => Math.max(10, Math.min(width - 10, d.target.x)))
-            .attr("y2", d => Math.max(10, Math.min(height - 10, d.target.y)));
+        // Limitar el área de movimiento para evitar que los nodos se alejen demasiado
+        const padding = 50;
+        data.nodes.forEach(d => {
+            d.x = Math.max(padding, Math.min(width - padding, d.x));
+            d.y = Math.max(padding, Math.min(height - padding, d.y));
+        });
         
-        node.attr("transform", d => `translate(${Math.max(10, Math.min(width - 10, d.x))},${Math.max(10, Math.min(height - 10, d.y))})`);
+        link
+            .attr("x1", d => d.source.x)
+            .attr("y1", d => d.source.y)
+            .attr("x2", d => d.target.x)
+            .attr("y2", d => d.target.y);
+        
+        node.attr("transform", d => `translate(${d.x},${d.y})`);
     });
     
-    // Funciones para el arrastre
+    // Funciones para el arrastre optimizadas
     function dragstarted(event, d) {
-        if (!event.active) simulation.alphaTarget(0.3).restart();
+        if (!event.active) simulation.alphaTarget(0.1).restart();
         d.fx = d.x;
         d.fy = d.y;
     }
@@ -788,6 +1377,30 @@ function renderGrafo(data) {
         d.fx = null;
         d.fy = null;
     }
+    
+    // Añadir leyenda con información del grafo
+    const leyenda = svg.append("g")
+        .attr("class", "leyenda")
+        .attr("transform", `translate(10, ${height - 60})`);
+    
+    leyenda.append("rect")
+        .attr("width", 180)
+        .attr("height", 50)
+        .attr("fill", "white")
+        .attr("opacity", 0.8)
+        .attr("rx", 5);
+    
+    leyenda.append("text")
+        .attr("x", 10)
+        .attr("y", 20)
+        .text(`Nodos: ${data.nodes.length}`)
+        .style("font-size", "12px");
+    
+    leyenda.append("text")
+        .attr("x", 10)
+        .attr("y", 40)
+        .text(`Enlaces: ${data.links.length}`)
+        .style("font-size", "12px");
     
     // Generar colores aleatorios pero consistentes para cada nodo
     function getRandomColor(id) {
@@ -912,8 +1525,4 @@ function renderGrafo(data) {
     } else {
         console.error("Elemento SVG no encontrado para adjuntar listener de click.");
     }
-}
-
-// --- Final structure reminder ---
-// Global functions (API calls, UI updates like modal/toast) are defined first.
-// Then, the DOMContentLoaded listener attaches event handlers to elements. 
+} 

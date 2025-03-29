@@ -69,26 +69,66 @@
     margin-top: 20px;
     border: 1px solid #ddd;
     border-radius: 5px;
-    height: 500px;
-    background-color: #f8f9fa;
+    height: 600px;
+    background-color: #fafafa;
     overflow: hidden;
+    position: relative;
 }
+
 .node {
     stroke: #fff;
-    stroke-width: 1.5px;
+    stroke-width: 1px;
+    cursor: pointer;
+    transition: opacity 0.3s ease;
 }
+
+.node:hover {
+    opacity: 0.8;
+}
+
+.node circle {
+    transition: r 0.3s ease;
+}
+
+.node:hover circle {
+    stroke: #000;
+    stroke-width: 2px;
+}
+
 .link {
     stroke: #999;
-    stroke-opacity: 0.6;
+    stroke-opacity: 0.3;
+    pointer-events: none;
 }
+
 .node text {
+    font-family: 'Inter', sans-serif;
     font-size: 10px;
     pointer-events: none;
     fill: #333;
     stroke: #fff;
-    stroke-width: 0.5px;
+    stroke-width: 2px;
     paint-order: stroke;
+    text-shadow: 
+        1px 1px 0 #fff,
+        -1px 1px 0 #fff,
+        1px -1px 0 #fff,
+        -1px -1px 0 #fff;
 }
+
+.leyenda {
+    pointer-events: none;
+    font-family: 'Inter', sans-serif;
+}
+
+.leyenda rect {
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+.leyenda text {
+    fill: #333;
+}
+
 .node-info {
     position: fixed;
     padding: 10px;
@@ -426,4 +466,74 @@ h1, h2, h3, h4, h5, h6 {
 
 .animate-text {
     animation: fadeInUp 0.8s ease-out 0.2s both;
+}
+
+/* Estilos para el modal de progreso */
+.progress-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 2000;
+}
+
+.progress-content {
+    background: white;
+    padding: 2rem;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    width: 90%;
+    max-width: 500px;
+}
+
+.progress-content h4 {
+    margin-bottom: 1.5rem;
+    color: #333;
+    text-align: center;
+}
+
+.progress {
+    height: 1.5rem;
+    background-color: #f0f0f0;
+    border-radius: 1rem;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+
+.progress-bar {
+    background-color: var(--primary-color);
+    color: white;
+    text-align: center;
+    line-height: 1.5rem;
+    font-size: 0.875rem;
+    transition: width 0.3s ease;
+}
+
+.metrics-status {
+    background-color: #f8f9fa;
+    padding: 1rem;
+    border-radius: 0.5rem;
+}
+
+.metrics-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.metrics-list li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    color: #666;
+}
+
+.metrics-list i {
+    color: #28a745;
 } 
