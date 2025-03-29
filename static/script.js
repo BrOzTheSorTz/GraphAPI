@@ -13,44 +13,33 @@ function cerrarModal() {
 
 // Función para mostrar resultados con formato mejorado
 function mostrarResultados(data) {
-    const resultadosDiv = document.getElementById('resultados');
-    
-    // Si hay un mensaje de éxito, mostrarlo de forma destacada
+    // Si hay un mensaje de éxito, mostrarlo como notificación
     if (data.mensaje) {
-        // Mostrar notificación toast
         mostrarNotificacion(data.mensaje, 'success');
-        
-        // Formatear el resultado para mostrar el mensaje de éxito destacado
-        let contenido = `<div class="success-text mb-3">✅ ${data.mensaje}</div>`;
-        delete data.mensaje; // Remover el mensaje para que no se duplique
-        
-        // Añadir el resto de datos formateados
-        if (Object.keys(data).length > 0) {
-            contenido += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
-        }
-        
-        resultadosDiv.innerHTML = contenido;
-    } else {
-        // JSON normal para otros resultados
-        resultadosDiv.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
     }
-    
-    // Mostrar el modal con los resultados
-    mostrarModal();
+
+    // Actualizar el componente de resultados
+    if (window.resultsManager) {
+        // Actualizar información general
+        if (data.num_nodos !== undefined && data.num_aristas !== undefined) {
+            window.resultsManager.showGeneralInfo(data);
+        }
+
+        // Actualizar lista de nodos
+        if (data.nodos) {
+            window.resultsManager.showNodesList(data.nodos);
+        }
+
+        // Actualizar lista de aristas
+        if (data.aristas) {
+            window.resultsManager.showEdgesList(data.aristas);
+        }
+    }
 }
 
 // Función para mostrar errores con formato mejorado
 function mostrarError(mensaje) {
-    const resultadosDiv = document.getElementById('resultados');
-    
-    // Mostrar notificación toast
     mostrarNotificacion(mensaje, 'error');
-    
-    // Formatear el error
-    resultadosDiv.innerHTML = `<div class="error-text">❌ Error: ${mensaje}</div>`;
-    
-    // Mostrar el modal con el error
-    mostrarModal();
 }
 
 // Función para mostrar notificaciones tipo toast
@@ -94,6 +83,24 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
 // --- Event Listeners (Execute after DOM is loaded) ---
 document.addEventListener('DOMContentLoaded', function() {
     console.log("script.js: DOM fully loaded and parsed.");
+    
+    // Cargar el componente de resultados
+    const resultsComponent = document.getElementById('resultsComponent');
+    if (resultsComponent) {
+        fetch('/static/components/results/results.html')
+            .then(response => response.text())
+            .then(html => {
+                resultsComponent.innerHTML = html;
+                // Inicializar el gestor de resultados después de cargar el HTML
+                if (typeof ResultsManager !== 'undefined') {
+                    window.resultsManager = new ResultsManager();
+                }
+            })
+            .catch(error => console.error('Error al cargar el componente de resultados:', error));
+    } else {
+        console.error("Elemento con ID 'resultsComponent' no encontrado.");
+    }
+
     // Cargar grafo - Attach listener after DOM ready
     const uploadForm = document.getElementById('uploadForm');
     if (uploadForm) {
@@ -183,10 +190,6 @@ function infoGrafo() {
         if (data.error) {
             mostrarError(data.error);
         } else {
-            // Si no hay un mensaje de éxito explícito, añadimos uno
-            if (!data.mensaje) {
-                data.mensaje = "Información del grafo obtenida correctamente";
-            }
             mostrarResultados(data);
         }
     })
@@ -202,8 +205,6 @@ function listarNodos() {
         if (data.error) {
             mostrarError(data.error);
         } else {
-            // Añadir mensaje de éxito
-            data.mensaje = `Listado de ${data.nodos?.length || 0} nodos obtenido correctamente`;
             mostrarResultados(data);
         }
     })
@@ -213,18 +214,47 @@ function listarNodos() {
 // Listar aristas
 function listarAristas() {
     console.log("script.js: listarAristas() called.");
-    fetch('/aristas')
+    
+    // Primero obtener la lista de nodos para tener sus nombres
+    fetch('/nodos')
     .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            mostrarError(data.error);
-        } else {
-            // Añadir mensaje de éxito
-            data.mensaje = `Listado de ${data.aristas?.length || 0} aristas obtenido correctamente`;
-            mostrarResultados(data);
+    .then(nodesData => {
+        if (nodesData.error) {
+            mostrarError(nodesData.error);
+            return;
         }
+
+        // Crear un mapa de IDs a nombres
+        const nodeMap = {};
+        nodesData.nodos.forEach(node => {
+            nodeMap[node.id] = node.nombre;
+        });
+
+        // Ahora obtener las aristas
+        return fetch('/aristas')
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                mostrarError(data.error);
+                return;
+            }
+
+            // Transformar los datos de aristas al formato esperado, usando los nombres
+            const edgesFormatted = data.aristas.map(edge => ({
+                nodo_origen: nodeMap[edge.source] || edge.source,
+                nodos_destino: [nodeMap[edge.target] || edge.target]
+            }));
+
+            // Mostrar los resultados usando el ResultsManager
+            if (window.resultsManager) {
+                window.resultsManager.showEdgesList(edgesFormatted);
+            }
+        });
     })
-    .catch(error => mostrarError(error.message));
+    .catch(error => {
+        console.error("Error al listar aristas:", error);
+        mostrarError(error.message);
+    });
 }
 
 // Calcular métricas
@@ -240,7 +270,10 @@ function calcularMetricas() {
         if (data.error) {
             mostrarError(data.error);
         } else {
-            mostrarResultados(data);
+            if (window.resultsManager) {
+                window.resultsManager.showMetricsNotification();
+            }
+            mostrarNotificacion('Métricas calculadas exitosamente', 'success');
         }
     })
     .catch(error => mostrarError(error.message));
@@ -248,42 +281,40 @@ function calcularMetricas() {
 
 // Buscar nodo por nombre
 function buscarNodo() {
-    console.log("script.js: buscarNodo() called.");
-    const nombre = document.getElementById('buscarNodoInput').value;
+    const nombre = document.getElementById('buscarNodoInput').value.trim();
     if (!nombre) {
-        return mostrarError('Debe ingresar un nombre para buscar');
+        mostrarError('Por favor, ingrese un nombre de nodo para buscar.');
+        return;
     }
-    
-    fetch(`/buscar-nodo/${nombre}`)
+
+    fetch(`/buscar-nodo/${encodeURIComponent(nombre)}`)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
             mostrarError(data.error);
         } else {
-            data.mensaje = `Nodo "${nombre}" encontrado correctamente`;
             mostrarResultados(data);
         }
     })
     .catch(error => mostrarError(error.message));
 }
 
-// Calcular distancia entre nodos
+// Calcular distancia entre dos nodos
 function calcularDistancia() {
-    console.log("script.js: calcularDistancia() called.");
-    const nodo1 = document.getElementById('nodoId1').value;
-    const nodo2 = document.getElementById('nodoId2').value;
+    const id1 = document.getElementById('nodoId1').value.trim();
+    const id2 = document.getElementById('nodoId2').value.trim();
     
-    if (!nodo1 || !nodo2) {
-        return mostrarError('Debe ingresar los IDs de ambos nodos');
+    if (!id1 || !id2) {
+        mostrarError('Por favor, ingrese los IDs de ambos nodos.');
+        return;
     }
-    
-    fetch(`/distancia/${nodo1}/${nodo2}`)
+
+    fetch(`/distancia/${encodeURIComponent(id1)}/${encodeURIComponent(id2)}`)
     .then(response => response.json())
     .then(data => {
         if (data.error) {
             mostrarError(data.error);
         } else {
-            data.mensaje = `Distancia calculada correctamente`;
             mostrarResultados(data);
         }
     })
@@ -293,16 +324,15 @@ function calcularDistancia() {
 // Visualizar grafo
 function visualizarGrafo() {
     console.log("script.js: visualizarGrafo() called.");
-    mostrarNotificacion('Generando visualización del grafo...', 'info');
-    
     fetch('/grafo-visualizacion')
     .then(response => response.json())
     .then(data => {
         if (data.error) {
-            return mostrarError(data.error);
+            mostrarError(data.error);
+        } else {
+            document.getElementById('grafo-container').classList.remove('d-none');
+            renderGrafo(data);
         }
-        renderGrafo(data);
-        mostrarNotificacion(`Grafo visualizado con ${data.nodes.length} nodos y ${data.links.length} aristas`, 'success');
     })
     .catch(error => mostrarError(error.message));
 }

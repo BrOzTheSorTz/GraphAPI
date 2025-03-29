@@ -1,0 +1,52 @@
+<!-- Modal de resultados -->
+<div id="resultsModal" class="results-container">
+    <div class="results-content">
+        <button id="closeResults" class="close-button">&times;</button>
+        
+        <!-- Sección de información general -->
+        <div id="generalInfo" class="results-section">
+            <h3>Información General</h3>
+            <div class="info-grid">
+                <div class="info-item">
+                    <span class="label">Número de Nodos:</span>
+                    <span id="numNodos" class="value">-</span>
+                </div>
+                <div class="info-item">
+                    <span class="label">Número de Aristas:</span>
+                    <span id="numAristas" class="value">-</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección de lista de nodos -->
+        <div id="nodesList" class="results-section scroll-section">
+            <h3>Lista de Nodos</h3>
+            <div id="nodesListContent" class="scroll-content">
+                <!-- Los nodos se insertarán aquí dinámicamente -->
+            </div>
+        </div>
+
+        <!-- Sección de lista de aristas -->
+        <div id="edgesList" class="results-section scroll-section">
+            <h3>Lista de Aristas</h3>
+            <div id="edgesListContent" class="scroll-content">
+                <!-- Las aristas se insertarán aquí dinámicamente -->
+            </div>
+        </div>
+
+        <!-- Sección de notificación de métricas -->
+        <div id="metricsNotification" class="results-section">
+            <h3>Métricas Calculadas</h3>
+            <div class="success-message">
+                <span class="success-icon">✓</span>
+                <p>Las métricas han sido calculadas exitosamente</p>
+            </div>
+        </div>
+
+        <!-- Botones de acción -->
+        <div class="action-buttons">
+            <button id="exportResults" class="action-button">Exportar Resultados</button>
+            <button id="clearResults" class="action-button">Limpiar Resultados</button>
+        </div>
+    </div>
+</div> 
