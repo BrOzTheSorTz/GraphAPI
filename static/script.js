@@ -652,10 +652,12 @@ function calcularMetricas() {
         if (data.error) {
             mostrarError(data.error);
         } else {
+            // Mostrar la notificación con las métricas calculadas
             if (window.resultsManager) {
-                window.resultsManager.showMetricsNotification();
+                window.resultsManager.showMetricsNotification(data.metricas_calculadas);
+                window.resultsManager.showModal();
             }
-            mostrarNotificacion('Métricas calculadas exitosamente', 'success');
+            mostrarMensaje(data.mensaje);
         }
     })
     .catch(error => mostrarError(error.message));

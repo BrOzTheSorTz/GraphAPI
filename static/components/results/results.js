@@ -198,10 +198,22 @@ class ResultsManager {
     }
 
     // Mostrar notificación de métricas calculadas
-    showMetricsNotification() {
+    showMetricsNotification(metricas) {
         this.hideAllSections();
         this.metricsNotification.classList.add('active');
-        this.showModal();
+        
+        const successMessage = this.metricsNotification.querySelector('.success-message');
+        if (successMessage) {
+            successMessage.innerHTML = `
+                <span class="success-icon">✓</span>
+                <div>
+                    <p>Las siguientes métricas han sido calculadas exitosamente:</p>
+                    <ul class="metricas-list">
+                        ${metricas.map(metrica => `<li>${metrica}</li>`).join('')}
+                    </ul>
+                </div>
+            `;
+        }
     }
 
     hideAllSections() {
