@@ -47,14 +47,32 @@
                     <button class="btn btn-outline-danger" onclick="visualizarGrafo()">Visualizar Grafo</button>
                 </div>
                 <div class="mt-3">
-                    <div class="input-group mb-3">
-                        <input type="text" class="form-control" id="buscarNodoInput" placeholder="Buscar nodo por nombre">
-                        <button class="btn btn-outline-secondary" type="button" onclick="buscarNodo()">Buscar</button>
+                    <!-- Búsqueda de nodo -->
+                    <div class="search-container">
+                        <div class="search-header">
+                            <h4>Buscar Nodo</h4>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="search-content">
+                            <input type="text" id="buscarNodoInput" class="search-input" placeholder="Buscar nodo por nombre..." autocomplete="off">
+                            <div id="buscarNodoSuggestions" class="suggestions-container"></div>
+                            <button onclick="buscarNodo()" class="search-button">Buscar</button>
+                        </div>
                     </div>
-                    <div class="input-group">
-                        <input type="text" class="form-control" id="nodoId1" placeholder="ID Nodo 1">
-                        <input type="text" class="form-control" id="nodoId2" placeholder="ID Nodo 2">
-                        <button class="btn btn-outline-secondary" type="button" onclick="calcularDistancia()">Calcular Distancia</button>
+
+                    <!-- Cálculo de distancia -->
+                    <div class="distance-container">
+                        <div class="distance-header">
+                            <h4>Calcular Distancia</h4>
+                            <span class="toggle-icon">▼</span>
+                        </div>
+                        <div class="distance-content">
+                            <input type="text" id="nodoId1" class="distance-input" placeholder="Primer nodo..." autocomplete="off">
+                            <div id="nodoId1Suggestions" class="suggestions-container"></div>
+                            <input type="text" id="nodoId2" class="distance-input" placeholder="Segundo nodo..." autocomplete="off">
+                            <div id="nodoId2Suggestions" class="suggestions-container"></div>
+                            <button onclick="calcularDistancia()" class="distance-button">Calcular Distancia</button>
+                        </div>
                     </div>
                 </div>
             </div>

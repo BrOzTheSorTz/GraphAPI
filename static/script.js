@@ -80,9 +80,313 @@ function mostrarNotificacion(mensaje, tipo = 'info') {
     }, 5000);
 }
 
+// Variables globales para el autocompletado
+let nodeNames = [];
+let nodeMap = {};
+
+// Función para inicializar el autocompletado
+function initializeAutocomplete() {
+    console.log("Inicializando autocompletado...");
+    fetch('/nodos')
+    .then(response => {
+        if (!response.ok) {
+            if (response.status === 400) {
+                throw new Error('No hay grafo cargado. Por favor, cargue un grafo primero.');
+            }
+            throw new Error(`Error del servidor: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (!data.error) {
+            nodeNames = data.nodos.map(node => node.nombre);
+            nodeMap = data.nodos.reduce((acc, node) => {
+                acc[node.nombre] = node.id;
+                return acc;
+            }, {});
+            console.log("Autocompletado inicializado con", nodeNames.length, "nodos");
+        } else {
+            console.error("Error al cargar nodos:", data.error);
+            mostrarError(data.error);
+        }
+    })
+    .catch(error => {
+        console.error('Error al cargar nombres de nodos:', error);
+        // No mostrar error al usuario si no hay grafo cargado
+        if (!error.message.includes('No hay grafo cargado')) {
+            mostrarError(error.message);
+        }
+    });
+}
+
+// Función para mostrar sugerencias
+function showSuggestions(input, suggestionsContainer) {
+    const value = input.value.toLowerCase();
+    const suggestions = nodeNames.filter(name => 
+        name.toLowerCase().includes(value)
+    );
+
+    suggestionsContainer.innerHTML = '';
+    
+    if (suggestions.length > 0) {
+        suggestions.forEach(name => {
+            const div = document.createElement('div');
+            div.className = 'suggestion-item';
+            div.textContent = name;
+            div.onclick = () => {
+                input.value = name;
+                suggestionsContainer.classList.remove('show');
+                // Disparar evento de cambio para asegurar que se actualiza el valor
+                input.dispatchEvent(new Event('change'));
+            };
+            suggestionsContainer.appendChild(div);
+        });
+        suggestionsContainer.classList.add('show');
+    } else {
+        suggestionsContainer.classList.remove('show');
+    }
+}
+
+// Función para crear y mostrar el modal de información de nodo
+function showNodeInfoModal(nodeData) {
+    let modal = document.getElementById('nodeInfoModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'nodeInfoModal';
+        modal.className = 'node-info-modal';
+        document.body.appendChild(modal);
+    }
+
+    const formatNumber = (value) => {
+        return (value !== null && value !== undefined) ? parseFloat(value).toFixed(3) : '0.000';
+    };
+
+    // Obtener los labels de los nodos adyacentes
+    const adyacentesLabels = nodeData.adyacentes.map(ady => {
+        // Si el adyacente es un objeto con label, usar el label
+        if (ady && typeof ady === 'object' && 'label' in ady) {
+            return ady.label;
+        }
+        // Si es un string (ID), buscar el label en nodeMap
+        if (typeof ady === 'string') {
+            // Buscar el nodo en nodeNames que corresponda a este ID
+            const nodo = Object.entries(nodeMap).find(([_, id]) => id === ady);
+            return nodo ? nodo[0] : ady; // Si no se encuentra, usar el ID como fallback
+        }
+        return ady; // Fallback para cualquier otro caso
+    });
+
+    modal.innerHTML = `
+        <div class="node-info-header">
+            <h4>Información del Nodo</h4>
+            <button class="node-info-close">&times;</button>
+        </div>
+        <div class="node-info-content">
+            <div class="node-metric">
+                <span class="node-metric-label">Nombre:</span>
+                <span class="node-metric-value">${nodeData.label || nodeData.nombre}</span>
+            </div>
+            <div class="node-metric">
+                <span class="node-metric-label">ID:</span>
+                <span class="node-metric-value">${nodeData.id}</span>
+            </div>
+            ${nodeData.centralidad !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">Centralidad:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.centralidad)}</span>
+                </div>
+            ` : ''}
+            ${nodeData.cercania !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">Cercanía:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.cercania)}</span>
+                </div>
+            ` : ''}
+            ${nodeData.intermediacion !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">Intermediación:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.intermediacion)}</span>
+                </div>
+            ` : ''}
+            ${nodeData.pagerank !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">PageRank:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.pagerank)}</span>
+                </div>
+            ` : ''}
+            ${nodeData.authority !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">Authority:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.authority)}</span>
+                </div>
+            ` : ''}
+            ${nodeData.hub !== undefined ? `
+                <div class="node-metric">
+                    <span class="node-metric-label">Hub:</span>
+                    <span class="node-metric-value">${formatNumber(nodeData.hub)}</span>
+                </div>
+            ` : ''}
+            <div class="node-adjacents">
+                <h5>Nodos Adyacentes</h5>
+                <ul class="node-adjacents-list">
+                    ${adyacentesLabels.map(label => `<li>${label}</li>`).join('')}
+                </ul>
+            </div>
+        </div>
+    `;
+
+    modal.classList.add('show');
+
+    // Event listeners para cerrar el modal
+    modal.querySelector('.node-info-close').onclick = () => {
+        modal.classList.remove('show');
+    };
+
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('show');
+        }
+    };
+}
+
+// Función para crear y mostrar el modal de distancia
+function showDistanceModal(data) {
+    let modal = document.getElementById('distanceModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'distanceModal';
+        modal.className = 'node-info-modal';
+        document.body.appendChild(modal);
+    }
+
+    // Obtener los nombres de los nodos usando nodeMap
+    const nodo1Nombre = Object.entries(nodeMap).find(([_, id]) => id === data.nodo1.id)?.[0] || data.nodo1.nombre;
+    const nodo2Nombre = Object.entries(nodeMap).find(([_, id]) => id === data.nodo2.id)?.[0] || data.nodo2.nombre;
+
+    modal.innerHTML = `
+        <div class="node-info-header">
+            <h4>Distancia entre Nodos</h4>
+            <button class="node-info-close">&times;</button>
+        </div>
+        <div class="node-info-content">
+            <div class="distance-result">
+                <p>La distancia entre <strong>${nodo1Nombre}</strong> y <strong>${nodo2Nombre}</strong> es de ${data.distancia === 'infinito' ? '∞' : data.distancia} unidades.</p>
+            </div>
+        </div>
+    `;
+
+    modal.classList.add('show');
+
+    // Event listeners para cerrar el modal
+    modal.querySelector('.node-info-close').onclick = () => {
+        modal.classList.remove('show');
+    };
+
+    modal.onclick = (e) => {
+        if (e.target === modal) {
+            modal.classList.remove('show');
+        }
+    };
+}
+
+// Modificar la función buscarNodo
+function buscarNodo() {
+    console.log("Buscando nodo...");
+    const nombre = document.getElementById('buscarNodoInput').value.trim();
+    if (!nombre) {
+        mostrarError('Por favor, ingrese un nombre de nodo para buscar.');
+        return;
+    }
+
+    // Verificar si hay nodos cargados
+    if (nodeNames.length === 0) {
+        mostrarError('No hay grafo cargado. Por favor, cargue un grafo primero.');
+        return;
+    }
+
+    const id = nodeMap[nombre];
+    console.log("ID encontrado para", nombre, ":", id);
+    
+    if (!id) {
+        mostrarError('No se encontró el nodo especificado.');
+        return;
+    }
+
+    fetch(`/nodo/${encodeURIComponent(id)}`)
+    .then(response => {
+        if (!response.ok) {
+            if (response.status === 400) {
+                throw new Error('No hay grafo cargado. Por favor, cargue un grafo primero.');
+            }
+            throw new Error(`Error del servidor: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+        } else {
+            showNodeInfoModal(data);
+        }
+    })
+    .catch(error => {
+        console.error("Error al buscar nodo:", error);
+        mostrarError(error.message);
+    });
+}
+
+// Modificar la función calcularDistancia
+function calcularDistancia() {
+    console.log("Calculando distancia...");
+    const nombre1 = document.getElementById('nodoId1').value.trim();
+    const nombre2 = document.getElementById('nodoId2').value.trim();
+    
+    if (!nombre1 || !nombre2) {
+        mostrarError('Por favor, ingrese los nombres de ambos nodos.');
+        return;
+    }
+
+    // Verificar si hay nodos cargados
+    if (nodeNames.length === 0) {
+        mostrarError('No hay grafo cargado. Por favor, cargue un grafo primero.');
+        return;
+    }
+
+    const id1 = nodeMap[nombre1];
+    const id2 = nodeMap[nombre2];
+    console.log("IDs encontrados:", id1, id2);
+
+    if (!id1 || !id2) {
+        mostrarError('Uno o ambos nodos no fueron encontrados.');
+        return;
+    }
+
+    fetch(`/distancia/${encodeURIComponent(id1)}/${encodeURIComponent(id2)}`)
+    .then(response => {
+        if (!response.ok) {
+            if (response.status === 400) {
+                throw new Error('No hay grafo cargado. Por favor, cargue un grafo primero.');
+            }
+            throw new Error(`Error del servidor: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        if (data.error) {
+            mostrarError(data.error);
+        } else {
+            showDistanceModal(data);
+        }
+    })
+    .catch(error => {
+        console.error("Error al calcular distancia:", error);
+        mostrarError(error.message);
+    });
+}
+
 // --- Event Listeners (Execute after DOM is loaded) ---
 document.addEventListener('DOMContentLoaded', function() {
-    console.log("script.js: DOM fully loaded and parsed.");
+    console.log("DOM fully loaded and parsed.");
     
     // Cargar el componente de resultados
     const resultsComponent = document.getElementById('resultsComponent');
@@ -136,6 +440,8 @@ document.addEventListener('DOMContentLoaded', function() {
                     mostrarError(data.error);
                 } else {
                     mostrarResultados(data);
+                    // Reinicializar el autocompletado después de cargar un nuevo grafo
+                    initializeAutocomplete();
                 }
             })
             .catch(error => mostrarError(error.message));
@@ -176,6 +482,82 @@ document.addEventListener('DOMContentLoaded', function() {
          // console.log("Elemento SVG 'grafo-svg' no encontrado al cargar la página.");
      }
 
+    // Configurar autocompletado para búsqueda de nodo
+    const buscarNodoInput = document.getElementById('buscarNodoInput');
+    const buscarNodoSuggestions = document.getElementById('buscarNodoSuggestions');
+    if (buscarNodoInput && buscarNodoSuggestions) {
+        buscarNodoInput.addEventListener('input', () => {
+            showSuggestions(buscarNodoInput, buscarNodoSuggestions);
+        });
+        
+        // Cerrar sugerencias al hacer clic fuera
+        document.addEventListener('click', (e) => {
+            if (!buscarNodoInput.contains(e.target) && !buscarNodoSuggestions.contains(e.target)) {
+                buscarNodoSuggestions.classList.remove('show');
+            }
+        });
+    }
+
+    // Configurar autocompletado para cálculo de distancia
+    const nodoId1Input = document.getElementById('nodoId1');
+    const nodoId1Suggestions = document.getElementById('nodoId1Suggestions');
+    const nodoId2Input = document.getElementById('nodoId2');
+    const nodoId2Suggestions = document.getElementById('nodoId2Suggestions');
+
+    if (nodoId1Input && nodoId1Suggestions) {
+        nodoId1Input.addEventListener('input', () => {
+            showSuggestions(nodoId1Input, nodoId1Suggestions);
+        });
+        
+        // Cerrar sugerencias al hacer clic fuera
+        document.addEventListener('click', (e) => {
+            if (!nodoId1Input.contains(e.target) && !nodoId1Suggestions.contains(e.target)) {
+                nodoId1Suggestions.classList.remove('show');
+            }
+        });
+    }
+
+    if (nodoId2Input && nodoId2Suggestions) {
+        nodoId2Input.addEventListener('input', () => {
+            showSuggestions(nodoId2Input, nodoId2Suggestions);
+        });
+        
+        // Cerrar sugerencias al hacer clic fuera
+        document.addEventListener('click', (e) => {
+            if (!nodoId2Input.contains(e.target) && !nodoId2Suggestions.contains(e.target)) {
+                nodoId2Suggestions.classList.remove('show');
+            }
+        });
+    }
+
+    // Inicializar autocompletado
+    initializeAutocomplete();
+
+    // Manejar secciones desplegables
+    const searchContainer = document.querySelector('.search-container');
+    const distanceContainer = document.querySelector('.distance-container');
+
+    if (searchContainer) {
+        const searchHeader = searchContainer.querySelector('.search-header');
+        const searchContent = searchContainer.querySelector('.search-content');
+        const searchIcon = searchHeader.querySelector('.toggle-icon');
+
+        searchHeader.addEventListener('click', () => {
+            searchContent.classList.toggle('show');
+            searchIcon.classList.toggle('rotated');
+        });
+    }
+
+    if (distanceContainer) {
+        const distanceHeader = distanceContainer.querySelector('.distance-header');
+        const distanceContent = distanceContainer.querySelector('.distance-content');
+        const distanceIcon = distanceHeader.querySelector('.toggle-icon');
+
+        distanceHeader.addEventListener('click', () => {
+            distanceContent.classList.toggle('show');
+            distanceIcon.classList.toggle('rotated');
+        });
+    }
 });
 
 
@@ -274,48 +656,6 @@ function calcularMetricas() {
                 window.resultsManager.showMetricsNotification();
             }
             mostrarNotificacion('Métricas calculadas exitosamente', 'success');
-        }
-    })
-    .catch(error => mostrarError(error.message));
-}
-
-// Buscar nodo por nombre
-function buscarNodo() {
-    const nombre = document.getElementById('buscarNodoInput').value.trim();
-    if (!nombre) {
-        mostrarError('Por favor, ingrese un nombre de nodo para buscar.');
-        return;
-    }
-
-    fetch(`/buscar-nodo/${encodeURIComponent(nombre)}`)
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            mostrarError(data.error);
-        } else {
-            mostrarResultados(data);
-        }
-    })
-    .catch(error => mostrarError(error.message));
-}
-
-// Calcular distancia entre dos nodos
-function calcularDistancia() {
-    const id1 = document.getElementById('nodoId1').value.trim();
-    const id2 = document.getElementById('nodoId2').value.trim();
-    
-    if (!id1 || !id2) {
-        mostrarError('Por favor, ingrese los IDs de ambos nodos.');
-        return;
-    }
-
-    fetch(`/distancia/${encodeURIComponent(id1)}/${encodeURIComponent(id2)}`)
-    .then(response => response.json())
-    .then(data => {
-        if (data.error) {
-            mostrarError(data.error);
-        } else {
-            mostrarResultados(data);
         }
     })
     .catch(error => mostrarError(error.message));

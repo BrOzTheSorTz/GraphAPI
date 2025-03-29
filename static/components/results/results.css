@@ -328,4 +328,83 @@
 
 #clearResults:hover {
     background-color: #da190b;
+}
+
+/* Estilos para campos de búsqueda y cálculo */
+.search-container, .distance-container {
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.search-header, .distance-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    padding: 5px 0;
+}
+
+.search-header h4, .distance-header h4 {
+    margin: 0;
+    color: #333;
+}
+
+.search-content, .distance-content {
+    display: none;
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #eee;
+}
+
+.search-content.show, .distance-content.show {
+    display: block;
+}
+
+.search-input, .distance-input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    margin-bottom: 10px;
+    font-size: 0.9rem;
+}
+
+.search-button, .distance-button {
+    background-color: #4CAF50;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s;
+}
+
+.search-button:hover, .distance-button:hover {
+    background-color: #45a049;
+}
+
+.toggle-icon {
+    font-size: 1.2rem;
+    color: #666;
+    transition: transform 0.3s ease;
+}
+
+.toggle-icon.rotated {
+    transform: rotate(180deg);
+}
+
+.distance-result {
+    text-align: center;
+    padding: 20px;
+    font-size: 1.1rem;
+    line-height: 1.5;
+}
+
+.distance-result strong {
+    color: #2196F3;
+    font-weight: 600;
 } 

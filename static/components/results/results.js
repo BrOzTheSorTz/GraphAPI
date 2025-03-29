@@ -165,7 +165,7 @@ class ResultsManager {
         if (this.nodesListContent) {
             this.nodesListContent.innerHTML = nodes.map(node => `
                 <div class="node-item">
-                    <h4>${node.nombre}</h4>
+                    <h4>${node.label || node.nombre}</h4>
                     ${this.formatNodeMetrics(node)}
                 </div>
             `).join('');
@@ -185,8 +185,10 @@ class ResultsManager {
             } else {
                 this.edgesListContent.innerHTML = edges.map(edge => `
                     <div class="edge-item">
-                        <h4>${edge.nodo_origen}</h4>
-                        <p>Conectado con: ${Array.isArray(edge.nodos_destino) ? edge.nodos_destino.join(', ') : edge.nodos_destino}</p>
+                        <h4>${edge.nodo_origen_label || edge.nodo_origen}</h4>
+                        <p>Conectado con: ${Array.isArray(edge.nodos_destino) 
+                            ? edge.nodos_destino.map(nodo => nodo.label || nodo).join(', ') 
+                            : edge.nodos_destino}</p>
                     </div>
                 `).join('');
             }
